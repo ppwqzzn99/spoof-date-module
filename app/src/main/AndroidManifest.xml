@@ -3,7 +3,7 @@
 
     <application
         android:label="SpoofDate"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@drawable/ic_launcher"
         android:theme="@style/AppTheme">
 
         <!-- LSPosed 模块元数据 -->
