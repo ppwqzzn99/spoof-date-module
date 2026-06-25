@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <SwitchPreference
+        android:key="enabled"
+        android:title="启用伪装"
+        android:summary="开启后对目标应用伪装日期"
+        android:defaultValue="true" />
+
+    <EditTextPreference
+        android:key="spoof_year"
+        android:title="年"
+        android:summary="伪装年份（如 2025）"
+        android:defaultValue="2025"
+        android:inputType="number" />
+
+    <EditTextPreference
+        android:key="spoof_month"
+        android:title="月"
+        android:summary="伪装月份 1-12"
+        android:defaultValue="1"
+        android:inputType="number" />
+
+    <EditTextPreference
+        android:key="spoof_day"
+        android:title="日"
+        android:summary="伪装日期 1-31"
+        android:defaultValue="1"
+        android:inputType="number" />
+
+    <EditTextPreference
+        android:key="spoof_hour"
+        android:title="时"
+        android:summary="伪装小时 0-23"
+        android:defaultValue="12"
+        android:inputType="number" />
+
+    <EditTextPreference
+        android:key="spoof_minute"
+        android:title="分"
+        android:summary="伪装分钟 0-59"
+        android:defaultValue="0"
+        android:inputType="number" />
+
+    <EditTextPreference
+        android:key="spoof_second"
+        android:title="秒"
+        android:summary="伪装秒数 0-59"
+        android:defaultValue="0"
+        android:inputType="number" />
+
+</PreferenceScreen>
