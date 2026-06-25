@@ -29,8 +29,6 @@ class DateSpoofHook : IXposedHookLoadPackage {
         private fun loadConfig(): Triple<Boolean, Long, Long> {
             return try {
                 val prefs = XSharedPreferences("com.spoof.date", PREFS_NAME)
-                prefs.makeWorldReadable()
-
                 val enabled = prefs.getBoolean("enabled", true)
                 if (!enabled) return Triple(false, 0L, 0L)
 
