@@ -15,226 +15,122 @@ class DateSpoofHook : IXposedHookLoadPackage {
         const val TARGET_PACKAGE = "com.zyyad.game"
         const val PREFS_NAME = "spoof_date_prefs"
 
-        // 缓存伪装时间戳，避免重复计算
+        // 配置加载标志
         @Volatile
-        private var cachedSpoofTime: Long = 0L
+        private var configLoaded = false
         @Volatile
-        private var cachedRealBase: Long = 0L
+        private var spoofEnabled = false
         @Volatile
-        private var cachedOffset: Long = 0L
+        private var spoofOffset = 0L
 
         /**
-         * 读取 XSharedPreferences 配置
+         * 启动时加载一次配置，后续使用缓存
          */
-        private fun loadConfig(): Triple<Boolean, Long, Long> {
-            return try {
-                val prefs = XSharedPreferences("com.spoof.date", PREFS_NAME)
-                val enabled = prefs.getBoolean("enabled", true)
-                if (!enabled) return Triple(false, 0L, 0L)
+        private fun ensureConfigLoaded() {
+            if (configLoaded) return
+            synchronized(this) {
+                if (configLoaded) return
+                try {
+                    val prefs = XSharedPreferences("com.spoof.date", PREFS_NAME)
+                    spoofEnabled = prefs.getBoolean("enabled", true)
+                    if (spoofEnabled) {
+                        val year = prefs.getString("spoof_year", "2025")?.toIntOrNull() ?: 2025
+                        val month = prefs.getString("spoof_month", "1")?.toIntOrNull() ?: 1
+                        val day = prefs.getString("spoof_day", "1")?.toIntOrNull() ?: 1
+                        val hour = prefs.getString("spoof_hour", "12")?.toIntOrNull() ?: 12
+                        val minute = prefs.getString("spoof_minute", "0")?.toIntOrNull() ?: 0
+                        val second = prefs.getString("spoof_second", "0")?.toIntOrNull() ?: 0
 
-                val year = prefs.getString("spoof_year", "2025")?.toIntOrNull() ?: 2025
-                val month = prefs.getString("spoof_month", "1")?.toIntOrNull() ?: 1
-                val day = prefs.getString("spoof_day", "1")?.toIntOrNull() ?: 1
-                val hour = prefs.getString("spoof_hour", "12")?.toIntOrNull() ?: 12
-                val minute = prefs.getString("spoof_minute", "0")?.toIntOrNull() ?: 0
-                val second = prefs.getString("spoof_second", "0")?.toIntOrNull() ?: 0
-
-                val cal = Calendar.getInstance().apply {
-                    set(Calendar.YEAR, year)
-                    set(Calendar.MONTH, month - 1) // Calendar.MONTH 从 0 开始
-                    set(Calendar.DAY_OF_MONTH, day)
-                    set(Calendar.HOUR_OF_DAY, hour)
-                    set(Calendar.MINUTE, minute)
-                    set(Calendar.SECOND, second)
-                    set(Calendar.MILLISECOND, 0)
+                        val cal = Calendar.getInstance().apply {
+                            set(Calendar.YEAR, year)
+                            set(Calendar.MONTH, month - 1)
+                            set(Calendar.DAY_OF_MONTH, day)
+                            set(Calendar.HOUR_OF_DAY, hour)
+                            set(Calendar.MINUTE, minute)
+                            set(Calendar.SECOND, second)
+                            set(Calendar.MILLISECOND, 0)
+                        }
+                        spoofOffset = cal.timeInMillis - System.currentTimeMillis()
+                        XposedBridge.log("[SpoofDate] 伪装已启用, 偏移量=${spoofOffset}ms")
+                    } else {
+                        XposedBridge.log("[SpoofDate] 伪装已禁用")
+                    }
+                } catch (t: Throwable) {
+                    XposedBridge.log("[SpoofDate] 配置加载失败: ${t.message}")
+                    spoofEnabled = false
                 }
-
-                val targetTime = cal.timeInMillis
-                val realNow = System.currentTimeMillis()
-                val offset = targetTime - realNow
-
-                // 缓存
-                cachedSpoofTime = targetTime
-                cachedRealBase = realNow
-                cachedOffset = offset
-
-                Triple(true, targetTime, offset)
-            } catch (t: Throwable) {
-                XposedBridge.log("[SpoofDate] 读取配置失败: ${t.message}")
-                Triple(false, 0L, 0L)
+                configLoaded = true
             }
-        }
-
-        /**
-         * 获取伪装后的时间戳
-         */
-        fun getSpoofedMillis(): Long {
-            val (enabled, _, offset) = loadConfig()
-            if (!enabled) return System.currentTimeMillis()
-            return System.currentTimeMillis() + offset
-        }
-
-        /**
-         * 读取配置并刷新缓存
-         */
-        fun refreshAndGetConfig(): Triple<Boolean, Long, Long> {
-            return loadConfig()
         }
     }
 
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
         if (lpparam.packageName != TARGET_PACKAGE) return
 
-        XposedBridge.log("[SpoofDate] 已注入目标应用: $TARGET_PACKAGE")
+        XposedBridge.log("[SpoofDate] 已注入: $TARGET_PACKAGE")
 
-        try {
-            hookSystemCurrentTimeMillis(lpparam)
-            hookDateConstructor(lpparam)
-            hookCalendarGetInstance(lpparam)
-            hookSystemClock(lpparam)
-            hookSimpleDateFormat(lpparam)
-            XposedBridge.log("[SpoofDate] 所有 hook 已安装完成")
-        } catch (t: Throwable) {
-            XposedBridge.log("[SpoofDate] Hook 安装失败: ${t.message}")
+        // 加载配置
+        ensureConfigLoaded()
+        if (!spoofEnabled) {
+            XposedBridge.log("[SpoofDate] 未启用，跳过 hook")
+            return
         }
-    }
 
-    /**
-     * Hook System.currentTimeMillis()
-     * 这是最核心的 hook，大部分时间 API 最终都调用它
-     */
-    private fun hookSystemCurrentTimeMillis(lpparam: XC_LoadPackage.LoadPackageParam) {
-        XposedHelpers.findAndHookMethod(
-            "java.lang.System",
-            lpparam.classLoader,
-            "currentTimeMillis",
-            object : XC_MethodHook() {
-                override fun beforeHookedMethod(param: MethodHookParam) {
-                    val (enabled, _, _) = loadConfig()
-                    if (enabled) {
-                        param.result = getSpoofedMillis()
-                    }
-                }
-            }
-        )
-        XposedBridge.log("[SpoofDate] Hook: System.currentTimeMillis()")
-    }
-
-    /**
-     * Hook java.util.Date 构造函数
-     */
-    private fun hookDateConstructor(lpparam: XC_LoadPackage.LoadPackageParam) {
-        // new Date() — 无参构造
-        XposedHelpers.findAndHookConstructor(
-            Date::class.java,
-            object : XC_MethodHook() {
-                override fun beforeHookedMethod(param: MethodHookParam) {
-                    val (enabled, _, _) = loadConfig()
-                    if (enabled) {
-                        // 替换为带时间戳的构造
-                        param.args = arrayOf(getSpoofedMillis())
-                    }
-                }
-            }
-        )
-
-        // new Date(long millis)
-        XposedHelpers.findAndHookConstructor(
-            Date::class.java,
-            Long::class.javaPrimitiveType,
-            object : XC_MethodHook() {
-                override fun beforeHookedMethod(param: MethodHookParam) {
-                    val (enabled, _, offset) = loadConfig()
-                    if (enabled) {
-                        val originalMillis = param.args[0] as Long
-                        param.args[0] = originalMillis + offset
-                    }
-                }
-            }
-        )
-
-        XposedBridge.log("[SpoofDate] Hook: Date constructors")
-    }
-
-    /**
-     * Hook Calendar.getInstance()
-     */
-    private fun hookCalendarGetInstance(lpparam: XC_LoadPackage.LoadPackageParam) {
-        // 返回后修改 Calendar 内部时间
-        XposedHelpers.findAndHookMethod(
-            Calendar::class.java,
-            "setTimeInMillis",
-            Long::class.javaPrimitiveType,
-            object : XC_MethodHook() {
-                override fun beforeHookedMethod(param: MethodHookParam) {
-                    val (enabled, _, offset) = loadConfig()
-                    if (enabled) {
-                        val originalMillis = param.args[0] as Long
-                        param.args[0] = originalMillis + offset
-                    }
-                }
-            }
-        )
-
-        // Calendar.getTime() 返回 Date，已被 Date hook 覆盖
-        // 额外 hook getTimeInMillis
-        XposedHelpers.findAndHookMethod(
-            Calendar::class.java,
-            "getTimeInMillis",
-            object : XC_MethodHook() {
-                override fun afterHookedMethod(param: MethodHookParam) {
-                    val (enabled, _, offset) = loadConfig()
-                    if (enabled) {
-                        val original = param.result as Long
-                        param.result = original + offset
-                    }
-                }
-            }
-        )
-
-        XposedBridge.log("[SpoofDate] Hook: Calendar")
-    }
-
-    /**
-     * Hook SystemClock（部分应用用它获取时间）
-     */
-    private fun hookSystemClock(lpparam: XC_LoadPackage.LoadPackageParam) {
+        // 只 hook System.currentTimeMillis，这是最底层的
+        // 大多数时间 API 最终都调用它
         try {
             XposedHelpers.findAndHookMethod(
-                "android.os.SystemClock",
+                "java.lang.System",
                 lpparam.classLoader,
-                "currentThreadTimeMillis",
+                "currentTimeMillis",
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        val (enabled, _, _) = loadConfig()
-                        if (enabled) {
-                            param.result = getSpoofedMillis()
+                        if (spoofEnabled) {
+                            param.result = System.currentTimeMillis() + spoofOffset
                         }
                     }
                 }
             )
+            XposedBridge.log("[SpoofDate] Hook System.currentTimeMillis OK")
         } catch (t: Throwable) {
-            XposedBridge.log("[SpoofDate] SystemClock hook 跳过 (非关键): ${t.message}")
+            XposedBridge.log("[SpoofDate] Hook System.currentTimeMillis 失败: ${t.message}")
         }
-    }
 
-    /**
-     * Hook SimpleDateFormat.format() — 拦截格式化输出
-     * 确保通过 format() 得到的字符串也是伪装后的
-     */
-    private fun hookSimpleDateFormat(lpparam: XC_LoadPackage.LoadPackageParam) {
-        // SimpleDateFormat.format(Date) — Date 已被 hook，这里无需额外处理
-        // 但有些应用直接传 long 给 format
-        XposedHelpers.findAndHookMethod(
-            "java.text.SimpleDateFormat",
-            lpparam.classLoader,
-            "format",
-            java.util.Date::class.java,
-            object : XC_MethodHook() {
-                // Date 对象已经包含伪装时间，无需修改
-            }
-        )
+        // Hook Date 构造函数
+        try {
+            XposedHelpers.findAndHookConstructor(
+                Date::class.java,
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (spoofEnabled) {
+                            param.args = arrayOf(System.currentTimeMillis() + spoofOffset)
+                        }
+                    }
+                }
+            )
+            XposedBridge.log("[SpoofDate] Hook Date() OK")
+        } catch (t: Throwable) {
+            XposedBridge.log("[SpoofDate] Hook Date() 失败: ${t.message}")
+        }
 
-        XposedBridge.log("[SpoofDate] Hook: SimpleDateFormat")
+        // Hook Date(long)
+        try {
+            XposedHelpers.findAndHookConstructor(
+                Date::class.java,
+                Long::class.javaPrimitiveType,
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (spoofEnabled) {
+                            param.args[0] = (param.args[0] as Long) + spoofOffset
+                        }
+                    }
+                }
+            )
+            XposedBridge.log("[SpoofDate] Hook Date(long) OK")
+        } catch (t: Throwable) {
+            XposedBridge.log("[SpoofDate] Hook Date(long) 失败: ${t.message}")
+        }
+
+        XposedBridge.log("[SpoofDate] 所有 hook 安装完成")
     }
 }
