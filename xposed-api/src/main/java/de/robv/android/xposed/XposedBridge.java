@@ -16,10 +16,4 @@ public final class XposedBridge {
     public static XC_MethodHook.Unhook hookAllConstructors(Class<?> hookClass, XC_MethodHook callback) {
         return null;
     }
-
-    public static class Unhook {
-        public Member getHookedMethod() { return null; }
-        public XC_MethodHook getCallback() { return null; }
-        public void unhook() {}
-    }
 }
