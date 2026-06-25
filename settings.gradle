@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "SpoofDateModule"
 include ':app'
+include ':xposed-api'

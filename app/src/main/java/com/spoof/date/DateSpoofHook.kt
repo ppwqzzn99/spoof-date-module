@@ -1,7 +1,5 @@
 package com.spoof.date
 
-import android.app.AndroidAppHelper
-import android.content.Context
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XSharedPreferences
